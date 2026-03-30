@@ -1,0 +1,75 @@
+---
+- name: Check Snake deployment drift
+  hosts: localhost
+  gather_facts: false
+  vars:
+    app_name: snake
+    namespace: "{{ target_namespace | default('snake-game') }}"
+    expected_replicas: "{{ replica_count | default(1) | int }}"
+    expected_image: "docker.io/ivan1993spb/snake-server:latest"
+
+  tasks:
+    - name: Get current Deployment state
+      kubernetes.core.k8s_info:
+        kind: Deployment
+        name: "{{ app_name }}"
+        namespace: "{{ namespace }}"
+      register: deploy_info
+
+    - name: Fail if Deployment is missing
+      ansible.builtin.fail:
+        msg: >
+          DRIFT DETECTED: Snake Deployment '{{ app_name }}' does not exist
+          in namespace '{{ namespace }}'!
+      when: deploy_info.resources | length == 0
+
+    - name: Set deployment facts
+      ansible.builtin.set_fact:
+        current_replicas: "{{ deploy_info.resources[0].spec.replicas }}"
+        current_image: "{{ deploy_info.resources[0].spec.template.spec.containers[0].image }}"
+        ready_replicas: "{{ deploy_info.resources[0].status.readyReplicas | default(0) }}"
+
+    - name: Check replica count matches expected
+      ansible.builtin.assert:
+        that:
+          - current_replicas | int == expected_replicas | int
+        fail_msg: >
+          DRIFT DETECTED: Expected {{ expected_replicas }} replica(s),
+          found {{ current_replicas }}.
+        success_msg: "✅ Replica count OK: {{ current_replicas }}"
+
+    - name: Check container image has not changed
+      ansible.builtin.assert:
+        that:
+          - current_image == expected_image
+        fail_msg: >
+          DRIFT DETECTED: Expected image '{{ expected_image }}',
+          but found '{{ current_image }}'.
+        success_msg: "✅ Container image OK: {{ current_image }}"
+
+    - name: Check pods are ready
+      ansible.builtin.assert:
+        that:
+          - ready_replicas | int == expected_replicas | int
+        fail_msg: >
+          DRIFT DETECTED: Only {{ ready_replicas }} of {{ expected_replicas }}
+          pod(s) are ready.
+        success_msg: "✅ Pods healthy: {{ ready_replicas }}/{{ expected_replicas }} ready"
+
+    - name: Get Route
+      kubernetes.core.k8s_info:
+        kind: Route
+        name: "{{ app_name }}"
+        namespace: "{{ namespace }}"
+      register: route_info
+
+    - name: Fail if Route is missing
+      ansible.builtin.fail:
+        msg: "DRIFT DETECTED: OpenShift Route '{{ app_name }}' is missing!"
+      when: route_info.resources | length == 0
+
+    - name: Report all clear
+      ansible.builtin.debug:
+        msg: >
+          ✅ Snake service is healthy.
+          URL: https://{{ route_info.resources[0].spec.host }}

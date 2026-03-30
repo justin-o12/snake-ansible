@@ -1,0 +1,139 @@
+---
+- name: Deploy Snake Game on OpenShift
+  hosts: localhost
+  gather_facts: false
+  vars:
+    app_name: snake
+    namespace: "{{ target_namespace | default('snake-game') }}"
+    image: "docker.io/ivan1993spb/snake-server:latest"
+    replicas: "{{ replica_count | default(1) | int }}"
+    rooms: "{{ game_rooms | default(5) | int }}"
+    room_capacity: "{{ players_per_room | default(10) | int }}"
+
+  tasks:
+    - name: Create namespace
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: v1
+          kind: Namespace
+          metadata:
+            name: "{{ namespace }}"
+            labels:
+              app: "{{ app_name }}"
+
+    - name: Deploy Snake server
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: apps/v1
+          kind: Deployment
+          metadata:
+            name: "{{ app_name }}"
+            namespace: "{{ namespace }}"
+            labels:
+              app: "{{ app_name }}"
+          spec:
+            replicas: "{{ replicas }}"
+            selector:
+              matchLabels:
+                app: "{{ app_name }}"
+            template:
+              metadata:
+                labels:
+                  app: "{{ app_name }}"
+              spec:
+                containers:
+                  - name: snake
+                    image: "{{ image }}"
+                    args:
+                      - "--enable-web"
+                      - "--rooms-count={{ rooms }}"
+                      - "--conn-limit={{ room_capacity }}"
+                    ports:
+                      - containerPort: 8080
+                        protocol: TCP
+                    resources:
+                      requests:
+                        memory: "64Mi"
+                        cpu: "100m"
+                      limits:
+                        memory: "128Mi"
+                        cpu: "200m"
+                    readinessProbe:
+                      httpGet:
+                        path: /
+                        port: 8080
+                      initialDelaySeconds: 5
+                      periodSeconds: 10
+                    livenessProbe:
+                      httpGet:
+                        path: /
+                        port: 8080
+                      initialDelaySeconds: 10
+                      periodSeconds: 30
+
+    - name: Create Service
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: v1
+          kind: Service
+          metadata:
+            name: "{{ app_name }}"
+            namespace: "{{ namespace }}"
+            labels:
+              app: "{{ app_name }}"
+          spec:
+            selector:
+              app: "{{ app_name }}"
+            ports:
+              - name: http
+                port: 8080
+                targetPort: 8080
+                protocol: TCP
+
+    - name: Create OpenShift Route
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: route.openshift.io/v1
+          kind: Route
+          metadata:
+            name: "{{ app_name }}"
+            namespace: "{{ namespace }}"
+            labels:
+              app: "{{ app_name }}"
+          spec:
+            to:
+              kind: Service
+              name: "{{ app_name }}"
+            port:
+              targetPort: http
+            tls:
+              termination: edge
+              insecureEdgeTerminationPolicy: Redirect
+
+    - name: Wait for deployment to be ready
+      kubernetes.core.k8s_info:
+        kind: Deployment
+        name: "{{ app_name }}"
+        namespace: "{{ namespace }}"
+      register: deploy_info
+      until: >
+        deploy_info.resources | length > 0 and
+        deploy_info.resources[0].status.readyReplicas is defined and
+        deploy_info.resources[0].status.readyReplicas == replicas
+      retries: 18
+      delay: 10
+
+    - name: Get the Route URL
+      kubernetes.core.k8s_info:
+        kind: Route
+        name: "{{ app_name }}"
+        namespace: "{{ namespace }}"
+      register: route_info
+
+    - name: Print game URL
+      ansible.builtin.debug:
+        msg: "🐍 Snake is live at: https://{{ route_info.resources[0].spec.host }}"

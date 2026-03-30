@@ -1,0 +1,20 @@
+---
+- name: Teardown Snake Game
+  hosts: localhost
+  gather_facts: false
+  vars:
+    namespace: "{{ target_namespace | default('snake-game') }}"
+
+  tasks:
+    - name: Delete namespace (removes all resources inside)
+      kubernetes.core.k8s:
+        state: absent
+        definition:
+          apiVersion: v1
+          kind: Namespace
+          metadata:
+            name: "{{ namespace }}"
+
+    - name: Confirm teardown
+      ansible.builtin.debug:
+        msg: "🗑️ Namespace '{{ namespace }}' deleted. Snake server is gone."
