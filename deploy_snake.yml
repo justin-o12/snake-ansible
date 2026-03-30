@@ -4,13 +4,135 @@
   gather_facts: false
   vars:
     app_name: snake
-    namespace: "{{ target_namespace | default('snake-game') }}"
-    image: "docker.io/dyego/snake-game"
-    replicas: "{{ replica_count | default(1) | int }}"
-    rooms: "{{ game_rooms | default(5) | int }}"
-    room_capacity: "{{ players_per_room | default(10) | int }}"
+    namespace: "justin-oursler-dev"
+    image: "docker.io/nginxinc/nginx-unprivileged:latest"
+    replicas: 1
 
   tasks:
+    - name: Deploy Snake game ConfigMap
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: v1
+          kind: ConfigMap
+          metadata:
+            name: "{{ app_name }}-html"
+            namespace: "{{ namespace }}"
+            labels:
+              app: "{{ app_name }}"
+          data:
+            index.html: |
+              <!DOCTYPE html>
+              <html lang="en">
+              <head>
+                <meta charset="UTF-8">
+                <title>Snake Game</title>
+                <style>
+                  body { background:#1a1a2e; display:flex; flex-direction:column;
+                         align-items:center; justify-content:center; height:100vh;
+                         margin:0; font-family:monospace; color:#eee; }
+                  h1 { color:#00ff88; margin-bottom:10px; }
+                  canvas { border:2px solid #00ff88; background:#16213e; }
+                  #score { font-size:1.2em; margin-bottom:8px; color:#00ff88; }
+                  #msg { margin-top:8px; font-size:0.9em; color:#aaa; }
+                </style>
+              </head>
+              <body>
+                <h1>🐍 Snake</h1>
+                <div id="score">Score: 0</div>
+                <canvas id="c" width="400" height="400"></canvas>
+                <div id="msg">Press any arrow key to start</div>
+                <script>
+                  const canvas = document.getElementById('c');
+                  const ctx = canvas.getContext('2d');
+                  const CELL = 20, COLS = 20, ROWS = 20;
+                  let snake, dir, nextDir, food, score, running, loop;
+
+                  function init() {
+                    snake = [{x:10,y:10},{x:9,y:10},{x:8,y:10}];
+                    dir = {x:1,y:0};
+                    nextDir = {x:1,y:0};
+                    score = 0;
+                    running = false;
+                    placeFood();
+                    draw();
+                    document.getElementById('score').textContent = 'Score: 0';
+                    document.getElementById('msg').textContent = 'Press any arrow key to start';
+                  }
+
+                  function placeFood() {
+                    do {
+                      food = {
+                        x: Math.floor(Math.random()*COLS),
+                        y: Math.floor(Math.random()*ROWS)
+                      };
+                    } while (snake.some(s => s.x===food.x && s.y===food.y));
+                  }
+
+                  function draw() {
+                    ctx.fillStyle = '#16213e';
+                    ctx.fillRect(0,0,canvas.width,canvas.height);
+                    ctx.fillStyle = '#00ff88';
+                    snake.forEach((s,i) => {
+                      ctx.fillStyle = i===0 ? '#00ff88' : '#00cc66';
+                      ctx.fillRect(s.x*CELL+1, s.y*CELL+1, CELL-2, CELL-2);
+                    });
+                    ctx.fillStyle = '#ff4444';
+                    ctx.beginPath();
+                    ctx.arc(food.x*CELL+CELL/2, food.y*CELL+CELL/2, CELL/2-2, 0, Math.PI*2);
+                    ctx.fill();
+                  }
+
+                  function step() {
+                    dir = nextDir;
+                    const head = {x: snake[0].x+dir.x, y: snake[0].y+dir.y};
+                    if (head.x<0||head.x>=COLS||head.y<0||head.y>=ROWS||
+                        snake.some(s=>s.x===head.x&&s.y===head.y)) {
+                      clearInterval(loop);
+                      running = false;
+                      document.getElementById('msg').textContent =
+                        'Game over! Score: '+score+' — Press any arrow key to restart';
+                      return;
+                    }
+                    snake.unshift(head);
+                    if (head.x===food.x && head.y===food.y) {
+                      score++;
+                      document.getElementById('score').textContent = 'Score: '+score;
+                      placeFood();
+                    } else {
+                      snake.pop();
+                    }
+                    draw();
+                  }
+
+                  document.addEventListener('keydown', e => {
+                    const keys = {
+                      ArrowUp:{x:0,y:-1}, ArrowDown:{x:0,y:1},
+                      ArrowLeft:{x:-1,y:0}, ArrowRight:{x:1,y:0}
+                    };
+                    if (!keys[e.key]) return;
+                    e.preventDefault();
+                    const d = keys[e.key];
+                    if (d.x === -dir.x && d.y === -dir.y) return;
+                    nextDir = d;
+                    if (!running) {
+                      if (score === 0 && snake.length === 3 &&
+                          snake[0].x===10 && snake[0].y===10) {
+                        running = true;
+                        loop = setInterval(step, 120);
+                      } else {
+                        init();
+                        running = true;
+                        loop = setInterval(step, 120);
+                      }
+                    }
+                  });
+
+                  init();
+                </script>
+              </body>
+              </html>
+
     - name: Deploy Snake server
       kubernetes.core.k8s:
         state: present
@@ -36,16 +158,8 @@
                   - name: snake
                     image: "{{ image }}"
                     ports:
-                      - containerPort: 80
+                      - containerPort: 8080
                         protocol: TCP
-                    securityContext:
-                      allowPrivilegeEscalation: false
-                      runAsNonRoot: true
-                      seccompProfile:
-                        type: RuntimeDefault
-                      capabilities:
-                        drop:
-                          - ALL
                     resources:
                       requests:
                         memory: "64Mi"
@@ -56,15 +170,31 @@
                     readinessProbe:
                       httpGet:
                         path: /
-                        port: 80
+                        port: 8080
                       initialDelaySeconds: 5
                       periodSeconds: 10
                     livenessProbe:
                       httpGet:
                         path: /
-                        port: 80
+                        port: 8080
                       initialDelaySeconds: 10
                       periodSeconds: 30
+                    securityContext:
+                      allowPrivilegeEscalation: false
+                      runAsNonRoot: true
+                      seccompProfile:
+                        type: RuntimeDefault
+                      capabilities:
+                        drop:
+                          - ALL
+                    volumeMounts:
+                      - name: html
+                        mountPath: /usr/share/nginx/html
+                        readOnly: true
+                volumes:
+                  - name: html
+                    configMap:
+                      name: "{{ app_name }}-html"
 
     - name: Create Service
       kubernetes.core.k8s:
@@ -82,8 +212,8 @@
               app: "{{ app_name }}"
             ports:
               - name: http
-                port: 80
-                targetPort: 80
+                port: 8080
+                targetPort: 8080
                 protocol: TCP
 
     - name: Create OpenShift Route
@@ -116,7 +246,7 @@
       until: >
         deploy_info.resources | length > 0 and
         deploy_info.resources[0].status.readyReplicas is defined and
-        deploy_info.resources[0].status.readyReplicas == replicas
+        deploy_info.resources[0].status.readyReplicas == 1
       retries: 18
       delay: 10
 
