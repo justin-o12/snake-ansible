@@ -23,7 +23,7 @@
             labels:
               app: "{{ app_name }}"
           spec:
-            replicas: "{{ replicas }}"
+            replicas: "{{ replicas | int }}"
             selector:
               matchLabels:
                 app: "{{ app_name }}"
@@ -37,8 +37,8 @@
                     image: "{{ image }}"
                     args:
                       - "--enable-web"
-                      - "--rooms-count={{ rooms }}"
-                      - "--conn-limit={{ room_capacity }}"
+                      - "--rooms-count={{ rooms | int }}"
+                      - "--conn-limit={{ room_capacity | int }}"
                     ports:
                       - containerPort: 8080
                         protocol: TCP
