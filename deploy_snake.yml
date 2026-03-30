@@ -5,7 +5,7 @@
   vars:
     app_name: snake
     namespace: "{{ target_namespace | default('snake-game') }}"
-    image: "docker.io/ivan1993spb/snake-server:latest"
+    image: "docker.io/dyego/snake-game"
     replicas: "{{ replica_count | default(1) | int }}"
     rooms: "{{ game_rooms | default(5) | int }}"
     room_capacity: "{{ players_per_room | default(10) | int }}"
@@ -35,12 +35,8 @@
                 containers:
                   - name: snake
                     image: "{{ image }}"
-                    args:
-                      - "--enable-web"
-                      - "--rooms-count={{ rooms | int }}"
-                      - "--conn-limit={{ room_capacity | int }}"
                     ports:
-                      - containerPort: 8080
+                      - containerPort: 80
                         protocol: TCP
                     securityContext:
                       allowPrivilegeEscalation: false
@@ -60,13 +56,13 @@
                     readinessProbe:
                       httpGet:
                         path: /
-                        port: 8080
+                        port: 80
                       initialDelaySeconds: 5
                       periodSeconds: 10
                     livenessProbe:
                       httpGet:
                         path: /
-                        port: 8080
+                        port: 80
                       initialDelaySeconds: 10
                       periodSeconds: 30
 
@@ -86,8 +82,8 @@
               app: "{{ app_name }}"
             ports:
               - name: http
-                port: 8080
-                targetPort: 8080
+                port: 80
+                targetPort: 80
                 protocol: TCP
 
     - name: Create OpenShift Route
