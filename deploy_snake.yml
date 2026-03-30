@@ -250,13 +250,12 @@
       retries: 18
       delay: 10
 
-    - name: Get the Route URL
-      kubernetes.core.k8s_info:
-        kind: Route
-        name: "{{ app_name }}"
-        namespace: "{{ namespace }}"
-      register: route_info
+    - name: Get the Route host
+      ansible.builtin.shell: >
+        oc get route {{ app_name }} -n {{ namespace }}
+        -o jsonpath='{.spec.host}'
+      register: route_host
 
     - name: Print game URL
       ansible.builtin.debug:
-        msg: "🐍 Snake is live at: https://{{ route_info.resources[0].spec.host }}"
+        msg: "🐍 Snake is live at: https://{{ route_host.stdout }}"
