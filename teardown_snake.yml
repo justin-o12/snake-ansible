@@ -3,18 +3,34 @@
   hosts: localhost
   gather_facts: false
   vars:
-    namespace: "{{ target_namespace | default('snake-game') }}"
+    app_name: snake
+    namespace: "{{ target_namespace | default('justin-oursler-dev') }}"
 
   tasks:
-    - name: Delete namespace (removes all resources inside)
+    - name: Delete Deployment
       kubernetes.core.k8s:
         state: absent
-        definition:
-          apiVersion: v1
-          kind: Namespace
-          metadata:
-            name: "{{ namespace }}"
+        api_version: apps/v1
+        kind: Deployment
+        name: "{{ app_name }}"
+        namespace: "{{ namespace }}"
+
+    - name: Delete Service
+      kubernetes.core.k8s:
+        state: absent
+        api_version: v1
+        kind: Service
+        name: "{{ app_name }}"
+        namespace: "{{ namespace }}"
+
+    - name: Delete Route
+      kubernetes.core.k8s:
+        state: absent
+        api_version: route.openshift.io/v1
+        kind: Route
+        name: "{{ app_name }}"
+        namespace: "{{ namespace }}"
 
     - name: Confirm teardown
       ansible.builtin.debug:
-        msg: "🗑️ Namespace '{{ namespace }}' deleted. Snake server is gone."
+        msg: "🗑️ Snake resources deleted from '{{ namespace }}'."

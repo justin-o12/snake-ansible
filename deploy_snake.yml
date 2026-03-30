@@ -11,17 +11,6 @@
     room_capacity: "{{ players_per_room | default(10) | int }}"
 
   tasks:
-    - name: Create namespace
-      kubernetes.core.k8s:
-        state: present
-        definition:
-          apiVersion: v1
-          kind: Namespace
-          metadata:
-            name: "{{ namespace }}"
-            labels:
-              app: "{{ app_name }}"
-
     - name: Deploy Snake server
       kubernetes.core.k8s:
         state: present
